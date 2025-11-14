@@ -1,9 +1,18 @@
-import React, { useState } from 'react';
-import { Text, TextInput, TouchableOpacity, StyleSheet, Image, Alert, ScrollView } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Text, TextInput, TouchableOpacity, StyleSheet, Image, Alert, ScrollView, View } from 'react-native';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../firebase/config';
 import uploadImage from '../utils/uploadImage';
+
+const DEFAULT_REGION = {
+  latitude: 37.5665,
+  longitude: 126.978,
+  latitudeDelta: 0.01,
+  longitudeDelta: 0.01,
+};
 
 export default function AddRestaurantScreen({ navigation }) {
   const [name, setName] = useState('');
@@ -13,6 +22,20 @@ export default function AddRestaurantScreen({ navigation }) {
   const [lng, setLng] = useState('');
   const [imageUri, setImageUri] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [region, setRegion] = useState(DEFAULT_REGION);
+
+  useEffect(() => {
+    const latitude = parseFloat(lat);
+    const longitude = parseFloat(lng);
+
+    if (!Number.isNaN(latitude) && !Number.isNaN(longitude)) {
+      setRegion((prev) => ({
+        ...prev,
+        latitude,
+        longitude,
+      }));
+    }
+  }, [lat, lng]);
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -71,6 +94,39 @@ export default function AddRestaurantScreen({ navigation }) {
     }
   };
 
+  const handleMapPress = (event) => {
+    const { latitude: pressedLat, longitude: pressedLng } = event.nativeEvent.coordinate;
+    setLat(pressedLat.toFixed(6));
+    setLng(pressedLng.toFixed(6));
+    setRegion((prev) => ({
+      ...prev,
+      latitude: pressedLat,
+      longitude: pressedLng,
+    }));
+  };
+
+  const handleUseCurrentLocation = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('권한 필요', '현재 위치를 사용하려면 위치 권한이 필요합니다.');
+        return;
+      }
+
+      const position = await Location.getCurrentPositionAsync({});
+      const { latitude: currentLat, longitude: currentLng } = position.coords;
+      setLat(currentLat.toFixed(6));
+      setLng(currentLng.toFixed(6));
+      setRegion((prev) => ({
+        ...prev,
+        latitude: currentLat,
+        longitude: currentLng,
+      }));
+    } catch (error) {
+      Alert.alert('오류', error.message);
+    }
+  };
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <TextInput
@@ -91,20 +147,40 @@ export default function AddRestaurantScreen({ navigation }) {
         value={address}
         onChangeText={setAddress}
       />
-      <TextInput
-        placeholder="위도"
-        style={styles.input}
-        value={lat}
-        onChangeText={setLat}
-        keyboardType="decimal-pad"
-      />
-      <TextInput
-        placeholder="경도"
-        style={styles.input}
-        value={lng}
-        onChangeText={setLng}
-        keyboardType="decimal-pad"
-      />
+      <View style={styles.mapSection}>
+        <View style={styles.mapWrapper}>
+          <MapView
+            style={styles.map}
+            provider={PROVIDER_GOOGLE}
+            region={region}
+            onRegionChangeComplete={setRegion}
+            onPress={handleMapPress}
+          >
+            {!Number.isNaN(parseFloat(lat)) && !Number.isNaN(parseFloat(lng)) && (
+              <Marker coordinate={{ latitude: parseFloat(lat), longitude: parseFloat(lng) }} />
+            )}
+          </MapView>
+        </View>
+        <View style={styles.coordInputs}>
+          <TextInput
+            placeholder="위도"
+            style={[styles.input, styles.coordInput, styles.coordInputLeft]}
+            value={lat}
+            onChangeText={setLat}
+            keyboardType="decimal-pad"
+          />
+          <TextInput
+            placeholder="경도"
+            style={[styles.input, styles.coordInput]}
+            value={lng}
+            onChangeText={setLng}
+            keyboardType="decimal-pad"
+          />
+        </View>
+        <TouchableOpacity style={styles.locationButton} onPress={handleUseCurrentLocation}>
+          <Text style={styles.locationButtonText}>현재 위치 사용</Text>
+        </TouchableOpacity>
+      </View>
       <TouchableOpacity style={styles.imagePicker} onPress={pickImage}>
         <Text style={styles.imagePickerText}>사진 선택</Text>
       </TouchableOpacity>
@@ -127,6 +203,39 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     marginBottom: 12,
+  },
+  mapSection: {
+    marginBottom: 16,
+  },
+  mapWrapper: {
+    height: 200,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  map: {
+    flex: 1,
+  },
+  coordInputs: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 12,
+  },
+  coordInput: {
+    flex: 1,
+  },
+  coordInputLeft: {
+    marginRight: 12,
+  },
+  locationButton: {
+    marginTop: 8,
+    padding: 12,
+    backgroundColor: '#4caf50',
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  locationButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
   },
   imagePicker: {
     padding: 12,
